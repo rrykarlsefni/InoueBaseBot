@@ -1,6 +1,6 @@
 {
   "name": "InoueBaseBot",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Base WhatsApp Bot using Baileys Multi-Device",
   "main": "rrykarl.js",
   "type": "commonjs",
