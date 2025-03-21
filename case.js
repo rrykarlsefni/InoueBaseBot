@@ -609,6 +609,7 @@ case "ping":
 case "speed":
 case "stats":
 case "infobot": { 
+	const stats = getInoueStats();
     const botStats = loadBotStats();
     const platform = os.platform();
     const totalRam = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2) + " GB"; 
