@@ -1,3 +1,11 @@
+/**
+ * Base By rrykarlsefni 
+ * github.com/rrykarlsefni
+ * saweria.co/rrykarlsefni
+ * https://whatsapp.com/channel/0029Vb42ECFB4hdJNqSg9t3z
+ * Supported By Gpt Assistant 
+*/
+
 const fs = require("fs");
 
 module.exports = {
