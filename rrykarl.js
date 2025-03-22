@@ -30,7 +30,6 @@ async function startBot() {
         browser: ["ubuntu", "Safari", "18.1"],
     });
 
-    // ✅ Pastikan pesan keluar tetap dihitung
     const originalSendMessage = rrykarl.sendMessage;
     rrykarl.sendMessage = async function (jid, content, options) {
         updateStatsOnSend();
