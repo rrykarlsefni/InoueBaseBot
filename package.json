@@ -1,14 +1,12 @@
 {
   "name": "InoueBaseBot",
   "version": "1.0.4",
-  "description": "Base WhatsApp Bot using Baileys Multi-Device",
+  "description": "Base",
   "main": "rrykarl.js",
   "type": "commonjs",
   "scripts": {
     "start": "node rrykarl.js",
-    "rrykarl": "nodemon rrykarl.js",
-    "rrykarl-prod": "node rrykarl.js",
-    "update-deps": "npm update"
+    "rrykarl-prod": "node rrykarl.js"
   },
   "author": {
     "name": "rrykarl",
@@ -31,18 +29,18 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "npm:@fizzxydev/baileys-pro@latest",
-    "nodemon": "^3.0.0",
+    "@whiskeysockets/baileys": "github:kangfarrel/felzar-Baileys",
     "axios": "^1.6.0",
+    "node-fetch": "^2.6.7",
     "fs-extra": "^11.1.1",
     "moment-timezone": "^0.5.40",
     "pino": "^7.0.5",
     "jimp": "^0.16.1",
-    "phin": "^3.7.1",
+    "phin": "^2.9.3",
+    "ytdl-core": "^4.11.0",
     "fluent-ffmpeg": "^2.1.2",
-    "ffmpeg-static": "^4.4.0",
-    "qrcode-terminal": "^0.12.0"
-  },  
+    "ffmpeg-static": "^4.4.0"
+  },
   "devDependencies": {},
   "repository": {
     "type": "git",

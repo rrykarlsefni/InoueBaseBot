@@ -1,7 +1,5 @@
 require("./rrykarl");
-} catch (error) {
-    console.error("Error: rrykarl.js tidak ditemukan loh yaðŸ˜¹");
-}
-//kosong kek hatimu////////////rrykarlsefni
-//ðŸ™‚
+
+//nyocot
+//skmsksksmsjemmsmskkske
 //gguna,hpus aj

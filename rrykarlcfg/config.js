@@ -9,26 +9,24 @@
 const fs = require("fs");
 
 module.exports = {
+	botName: "Inoue",
+    ownerName: "RRYKARL",
     owner: "6288802752781",
     prefix: [".", ",", "!", "?"],
-    botName: "Inoue",
-    ownerName: "RRYKARL",
     consoleLog: "rrykarlsefni",
-    footer: "ʳʳʸᵏᵃʳˡˢᵉᶠⁿⁱ",  ///footer hanya mendukung pesan interactive/button dll, tidak mendukung ImageMesej, pastikan melihat infi di gitub
+    footer: "ʳʳʸᵏᵃʳˡˢᵉᶠⁿⁱ",  ///footer hanya mendukung pesan interactive/button dll, pastikan melihat info di gitub
     title: "InoueBaseBot",
     body: "ᴅᴇᴜɴᴀᴍɪꜱᴛ | rrykarl",
-    status: true,
-    mode: "public",
     
     rrykarls: {
     	nameCh: "ᴅᴇᴜɴᴀᴍɪꜱᴛ | rrykarl ",
     	idCh: "120363378175074413@newsletter",
         linkCh: "https://whatsapp.com/channel/0029Vb42ECFB4hdJNqSg9t3z",
         linkGc: "https://chat.whatsapp.com/H1KkQQUVppmD4VUs8Aqri1",
-        fkreply: "https://cdn.xtermai.xyz/2uVUO.jpg",
-        thumbvid : "https://files.catbox.moe/4y6uuu.mp4",
-        image: "https://cdn.xtermai.xyz/AXfiR.jpg",
-        audio: "https://cdn.xtermai.xyz/dhf2U.mp3",
+        fkreply: "https://raw.githubusercontent.com/rrykarlsefni/DBStorage/master/rrykarlcdn/fkreply.jpg",
+        thumbvid : "https://raw.githubusercontent.com/rrykarlsefni/DBStorage/master/rrykarlcdn/vid.mp4",
+        image: "https://raw.githubusercontent.com/rrykarlsefni/DBStorage/master/rrykarlcdn/InoueBaseBotThumb.png",
+        audio: "https://raw.githubusercontent.com/rrykarlsefni/DBStorage/master/rrykarlcdn/No.%201%20Party%20Anthem%20(128kbps).mp3",
         pairing: "RRYKARLS", 
     },
     

@@ -1,97 +1,169 @@
-const { generateWAMessageFromContent } = require("@whiskeysockets/baileys");
-const { rrykarlsLCMD, logUnknownCommand } = require("./helpers/InoueLogger");
-const { exec, execSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const util = require("util");
 const { performance } = require("perf_hooks");   
 const axios = require("axios");
+const fetch = require('node-fetch');
 const jimp = require("jimp");
-const { loadBotStats, updateRuntime, getLastOnline } = require("./database/botStats");
+const path = require('path');
+const ytdl = require("ytdl-core");
 const config = require("./rrykarlcfg/config");
 const { ffmpegConvertToWebp } = require("./helpers/func/ffmpeg");
-const { getInoueStats, time } = require("./helpers/InoueStats");
-const { getRandomEmoji, getGreeting } = require("./helpers/Inoueutilities");
+const { getInoueStats, time } = require("./helpers/statsSs");
+const { getRandomEmoji, getGreeting } = require("./helpers/utilities");
 const { requestPairingCode } = require("./helpers/func/rry-pairspam");
 const more = String.fromCharCode(8206);
 const readmore = more.repeat(4001);
 const processedMessages = new Set();
+
+const { 
+proto,
+generateWAMessageFromContent,
+generateWAMessage,
+generateWAMessageContent,
+getContentType,
+prepareWAMessageMedia,
+downloadContentFromMessage
+} = require("@whiskeysockets/baileys");
+
+const {  
+rrykarlsLCMD,  
+logUnknownCommand  
+} = require("./helpers/logger");
+
+const { 
+exec, 
+execSync 
+} = require("child_process");
+
+const { 
+loadBotStats, 
+updateRuntime, 
+getLastOnline 
+} = require("./database/botStats");
+
+
+///-----///
 const isOwner = (senderJid, rrykarl) => {
-    if (!senderJid || typeof senderJid !== "string") return false;
-    if (!rrykarl?.user?.id) return false;
-    const ownerNumbers = [].concat(config.owner || [])
-        .map(num => num.toString().replace(/@s\.whatsapp\.net/, "").trim())
-        .filter(num => num.length > 0);
-    const botNumber = rrykarl.user.id.replace(/@s\.whatsapp\.net/, "").trim();
-    return ownerNumbers.includes(senderJid.replace(/@s\.whatsapp\.net/, "").trim()) 
-        || senderJid.replace(/@s\.whatsapp\.net/, "").trim() === botNumber;
+  if (!senderJid || typeof senderJid !== "string") return false;
+  if (!rrykarl?.user?.id) return false;
+
+  const botNumber = rrykarl.user.id.replace(/[^0-9]/g, "").trim();
+  const ownerNumbers = [].concat(config.owner || [])
+    .map(num => num.toString().replace(/[^0-9]/g, "").trim())
+    .filter(num => num.length > 0);
+  const senderNumber = senderJid.replace(/[^0-9]/g, "").trim();
+  return ownerNumbers.includes(senderNumber) || senderNumber === botNumber;
 };
 
+///-----///
+const settingPath = "./rrykarlcfg/settings.json";
+const getSettings = () => JSON.parse(fs.readFileSync(settingPath));
+const saveSettings = (data) => fs.writeFileSync(settingPath, JSON.stringify(data, null, 2));
+
+///-----///
 module.exports = async (rrykarl, m) => {
-    try {
-        if (!m.message) return;
-        ///x/x/x/x///
+try {
+if (!m.message) return;
+
+const settings = getSettings();
+const senderJid = m.key?.participant ?? m.key?.remoteJid ?? "";
+const InoueSend = m.key?.remoteJid ?? "";
+const isGroup = InoueSend.endsWith("@g.us");
+    
 const messageType = Object.keys(m.message || {})[0] || "";
 const textMessage = (
-  m.message?.conversation ??
-  m.message?.[messageType]?.text ??
-  m.message?.extendedTextMessage?.text ?? 
+m.message?.conversation ??
+m.message?.[messageType]?.text ??
+m.message?.extendedTextMessage?.text ??
+m.message?.buttonsResponseMessage?.selectedButtonId ??
+m.message?.listResponseMessage?.singleSelectReply?.selectedRowId ??
+m.message?.templateButtonReplyMessage?.selectedId ??
+(m.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
+? (() => {
+try {
+ return JSON.parse(m.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson)?.id;
+} catch (e) {
+return null;
+}
+})()
+: null
+) ??
+m.message?.extendedTextMessage?.contextInfo?.quotedMessage?.conversation ??
   ""
-).trim();
-if (!textMessage) return; 
-const senderJid = m.key?.participant || m.key?.remoteJid || "";
-const InoueSend = m.key?.remoteJid || "";
-const isGroup = InoueSend.endsWith("@g.us"); 
-const prefix = Array.isArray(config?.prefix)
-  ? config.prefix.find((p) => textMessage.startsWith(p))
-  : null;
-if (!prefix) return;
-const commandWithArgs = textMessage.slice(prefix.length).trim();
-if (!commandWithArgs) return;
-const [commandRaw, ...argsArray] = commandWithArgs.split(/\s+/).filter(Boolean);
-const command = commandRaw?.toLowerCase().trim(); 
-if (!command) return; 
-const args = argsArray.join(" "); 
-const text = args; 
-const senderJidName = m.pushName || "Unknown";
-const messLocation = isGroup ? "Group Chat" : "Private Chat";
-const whoOwner = isOwner(senderJid, rrykarl) ? "true" : "false";
+)?.trim() || "";
 
-if (config.mode === "self" && !isOwner(senderJid, rrykarl)) return;
+if (!textMessage) return;
+
+const evalPrefix = ["=>", ">", "$"];
+const usedEvalPrefix = evalPrefix.find(p => textMessage.startsWith(p));
+
+const prefix = Array.isArray(config?.prefix)
+  ? config.prefix.find(p => textMessage.startsWith(p))
+  : null;
+
+if (!prefix && !usedEvalPrefix) return;
+
+const usedPrefix = prefix ?? usedEvalPrefix;
+const commandWithArgs = textMessage.slice(usedPrefix.length).trim();
+if (!commandWithArgs) return;
+
+const [commandRaw, ...argsArray] = commandWithArgs.split(/\s+/).filter(Boolean);
+const command = commandRaw?.toLowerCase().trim();
+const args = argsArray.join(" ");
+const text = args;
+
 if (processedMessages.has(m.key.id)) return;
 processedMessages.add(m.key.id);
 
+const groupMetadata = isGroup ? await rrykarl.groupMetadata(InoueSend).catch(() => ({})) : {};
+const groupOwner = groupMetadata.owner ?? "";
+const groupName = groupMetadata.subject ?? "";
+const participants = groupMetadata.participants ?? [];
+const groupAdmins = participants.filter(v => v.admin !== null).map(v => v.id);
+const groupMembers = participants.map(v => v.id);
+const isBotGroupAdmins = isGroup ? groupAdmins.includes(rrykarl.user.id) : false;
+const isBotAdmins = isBotGroupAdmins;
+const isAdmins = isGroup ? groupAdmins.includes(senderJid) : false;
+    
+const senderJidName = m.pushName ?? "Unknown";
+const messLocation = isGroup ? "Group Chat" : "Private Chat";
+const whoOwner = isOwner(senderJid, rrykarl) ? "true" : "false";
+
+const mode = settings.mode || "public";
+if (mode === "self" && !isOwner(senderJid, rrykarl)) return;
+
 ///-----///
 async function getBuffer(url) {
-    try {
-        const response = await axios.get(url, { responseType: "arraybuffer" });
-        return Buffer.from(response.data, "binary");
-    } catch {
-        return null;
-    }
+try {
+const response = await axios.get(url, { responseType: "arraybuffer" });
+return Buffer.from(response.data, "binary");
+} catch {
+return null;
 }
-
+}
 let ppuser;
 try {
-    ppuser = await rrykarl.profilePictureUrl(senderJid, "image");
+puser = await rrykarl.profilePictureUrl(senderJid, "image");
 } catch {
-    ppuser = config.rrykarls.fkreply;
+ppuser = config.rrykarls.fkreply;
 }
 const profileuser = await getBuffer(ppuser);
 const resizeImage = async (buffer, width, height) => {
-    try {
-        const image = await jimp.read(buffer);
-        image.cover(width, height, jimp.HORIZONTAL_ALIGN_CENTER | jimp.VERTICAL_ALIGN_MIDDLE);
-        return await image.quality(50).getBufferAsync(jimp.MIME_JPEG);
-    } catch {
-        return null;
-    }
+try {
+const image = await jimp.read(buffer);
+image.cover(width, height, jimp.HORIZONTAL_ALIGN_CENTER | jimp.VERTICAL_ALIGN_MIDDLE);
+return await image.quality(50).getBufferAsync(jimp.MIME_JPEG);
+} catch {
+return null;
+}
 };
 const fakethumb = await resizeImage(profileuser, 300, 300);
 ///-----///
 const ftroli = { 
 key: { 
 remoteJid: "6288802752781-120363402095323524@g.us", 
+mentionedJid: [senderJid],
 participant: "6288802752781@s.whatsapp.net" 
 }, 
 message: {
@@ -108,41 +180,82 @@ sellerJid: "0@s.whatsapp.net"
 };
 ///---///
 async function sendAwdyo(rrykarl, InoueSend, url, options = {}) {
-    try {
-        const response = await axios({
-            method: "GET",
-            url: url,
-            responseType: "arraybuffer",
-        });
+try {
+const response = await axios({
+method: "GET",
+url: url,
+responseType: "arraybuffer",
+});
 
-        await rrykarl.sendMessage(InoueSend, { 
-            audio: Buffer.from(response.data, "binary"), 
-            mimetype: "audio/mp4", 
-            ptt: false, 
-            ...options
-        });
-    } catch (error) {}
+await rrykarl.sendMessage(InoueSend, { 
+audio: Buffer.from(response.data, "binary"), 
+mimetype: "audio/mp4", 
+ptt: false, 
+...options
+});
+} catch (error) {}
 }
-///|================( sjsjnsjsjs )================|
-async function replymesej(InoueSend, menuText, image, rrykarl, m) {
-    await rrykarl.sendMessage(InoueSend, { 
-        image: { url: image },  
-        caption: menuText,  
-        footer: config.footer,
-        contextInfo: { 
-            forwardingScore: 999, 
-            isForwarded: true 
-        },
-        interactiveButtons: [
-            {
-                name: "cta_url",
-                buttonParamsJson: JSON.stringify({
-                    display_text: "Official Saluran",
-                    url: config.rrykarls.saluran
-                })
+///----///
+async function sendMenuMessage(to, captionText, videoUrl = config.rrykarls.thumbvid) {
+    const footer = config.footer;
+    const buttonId = `.menu`;
+    const buttonText = 'kembali ke menu';
+    const menuText = captionText;
+    await rrykarl.sendMessage(to, {
+        video: { url: videoUrl },
+        gifPlayback: true,
+        caption: menuText,
+        footer: footer,
+        contextInfo: {
+            forwardingScore: 999,
+            isForwarded: true,
+            forwardedNewsletterMessageInfo: {
+                newsletterName: config.rrykarls.nameCh,
+                newsletterJid: config.rrykarls.idCh
+            },
+            externalAdReply: {
+                showAdAttribution: true,
+                title: config.title,
+                body: config.body,
+                thumbnailUrl: config.rrykarls.image,
+                sourceUrl: config.rrykarls.idCh,
+                mediaType: 1,
+                renderLargerThumbnail: false
             }
-        ]
-    }, { quoted: ftroli }); 
+        },
+        buttons: [
+            {
+                buttonId: buttonId,
+                buttonText: { displayText: buttonText },
+                type: 1
+            }
+        ],
+        headerType: 1,
+        viewOnce: true
+    });
+}
+
+///----///
+async function sendAwdyoMessage(to, audioUrl) {
+    await sendAwdyo(rrykarl, to, audioUrl, {
+        contextInfo: {
+            forwardingScore: 999,
+            isForwarded: true,
+            forwardedNewsletterMessageInfo: {
+                newsletterName: config.rrykarls.nameCh,
+                newsletterJid: config.rrykarls.idCh
+            },
+            externalAdReply: {
+                showAdAttribution: true,
+                title: config.title,
+                body: config.body,
+                thumbnailUrl: config.rrykarls.image,
+                sourceUrl: config.rrykarls.idCh,
+                mediaType: 1,
+                renderLargerThumbnail: false
+            }
+        }
+    });
 }
 ///----///
 function InoueRuntime() {
@@ -154,7 +267,6 @@ function InoueRuntime() {
     return `${days}d ${hours}h ${minutes}m`;
 }
 ///---////
-///|================( sknsjsmsmks )================|
         rrykarlsLCMD(command, senderJidName, senderJid, messLocation, whoOwner);
 
         switch (command) {
@@ -172,7 +284,7 @@ WhatsApp bot that will help you
 
 > \`Waktu\`   : *${stats.time} WIB*
 > \`Runtime\` : *${InoueRuntime()}*
-> \`Status\`  : *${stats.status} Mode*
+> \`Status\`  : *${settings.mode || "public"} Mode*
 > \`Bot Ver\` : *${stats.botVersion}*
 > \`NodeJS\`  : *${stats.nodeVersion}*
 > \`Baileys\` : *${stats.baileysVersion}*
@@ -187,6 +299,7 @@ ${readmore}
 if (m.key && m.key.id) {
 rrykarl.sendMessage(InoueSend, { react: { text: getRandomEmoji(), key: m.key } });
 }
+
 await rrykarl.sendMessage(InoueSend, {
     video: { url: config.rrykarls.thumbvid },
     gifPlayback: true,
@@ -209,36 +322,79 @@ await rrykarl.sendMessage(InoueSend, {
             mediaType: 1,
             renderLargerThumbnail: true
         }
-    }
-}, { quoted: ftroli });
-                
-    try {
-    await sendAwdyo(rrykarl, InoueSend, config.rrykarls.audio, {
-        contextInfo: { 
-            forwardingScore: 999, 
-            isForwarded: true,
-            forwardedNewsletterMessageInfo: {
-                newsletterName: config.rrykarls.nameCh,
-                newsletterJid: config.rrykarls.idCh 
-            },
-            externalAdReply: {  
-                showAdAttribution: true,
-                title: config.title,
-                body: config.body,
-                thumbnailUrl: config.rrykarls.image,
-                sourceUrl: config.rrykarls.idCh,
-                mediaType: 1,
-                renderLargerThumbnail: false
+    },
+    buttons: [
+        { 
+            buttonId: `.owner`,
+            buttonText: { displayText: 'owner' },
+            type: 1 
+        },
+        { 
+            buttonId: `.sc`,
+            buttonText: { displayText: 'script' },
+            type: 1 
+        },
+        { 
+            buttonId: `action`,
+            buttonText: { displayText: 'More Options' },
+            type: 4,
+            nativeFlowInfo: {
+                name: 'single_select',
+                paramsJson: JSON.stringify({
+                    title: '-List Menu',
+                    sections: [
+                        {
+                            title: 'rrykarlsefni',
+                            highlight_label: '🫩',
+                            rows: [
+                                {
+                                    header: 'menu all',
+                                    title: 'allmenu',
+                                    description: 'Klik untuk melihat allmenu',
+                                    id: '.allmenu'
+                                },
+                                {
+                                    header: 'menu owner',
+                                    title: 'ownermenu',
+                                    description: 'menu untik owner',
+                                    id: '.ownermenu'
+                                },
+                                {
+                                    header: 'menu tools',
+                                    title: 'toolsmenu',
+                                    description: 'klik untik melihat menu tools',
+                                    id: '.toolsmenu'
+                                },
+                                {
+                                    header: 'menu main',
+                                    title: 'mainmenu',
+                                    description: 'klik untik melihat menu main',
+                                    id: '.mainmenu'
+                                },
+                            ]
+                        }
+                    ]
+                })
             }
         }
-    }, { quoted: m });
-} catch (error) {}
-break;
+    ],
+    headerType: 1,
+    viewOnce: true
+}, { quoted: ftroli });
+
+try {
+        await sendAwdyoMessage(InoueSend, config.rrykarls.audio);
+    } catch (error) {
+        console.log("Error sending audio:", error);
+    }
+
+    break;
 }
-///|================( ALL MENU )================|
+
+///|================( LIST MENU)================|
 case "rrykarlsefni": 
 case "allmenu": {
-let menuText = `
+    const captionText = `
 \`ALLMENU\`
 *[ OWNER MENU ]*
 > public
@@ -246,13 +402,9 @@ let menuText = `
 > joingc
 > followch
 > pairspam
-> exec
-> eval
-> shell
-> synceval
-> asynceval
-> seval
-> aseval
+> $
+> >
+> =>
 
 *[ TOOLS MENU ]*
 > brat
@@ -269,102 +421,65 @@ let menuText = `
 `;
 
 if (m.key && m.key.id) {
-rrykarl.sendMessage(InoueSend, { react: { text: getRandomEmoji(), key: m.key } });
-}
-await rrykarl.sendMessage(InoueSend, {
-    video: { url: config.rrykarls.thumbvid },
-    gifPlayback: true,
-    caption: menuText,
-    footer: config.footer,
-    contextInfo: {
-        mentionedJid: [senderJid],
-        forwardingScore: 999,
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-            newsletterName: config.rrykarls.nameCh,
-            newsletterJid: config.rrykarls.idCh 
-        },
-        externalAdReply: {  
-            showAdAttribution: true,
-            title: config.title,
-            body: config.body,
-            thumbnailUrl: config.rrykarls.image,
-            sourceUrl: config.rrykarls.idCh,
-            mediaType: 1,
-            renderLargerThumbnail: true
-        }
+        rrykarl.sendMessage(InoueSend, { 
+            react: { text: getRandomEmoji(), key: m.key } 
+        });
     }
-}, { quoted: ftroli });
-                
-    try {
-    await sendAwdyo(rrykarl, InoueSend, config.rrykarls.audio, {
-        contextInfo: { 
-            forwardingScore: 999, 
-            isForwarded: true,
-            forwardedNewsletterMessageInfo: {
-                newsletterName: config.rrykarls.nameCh,
-                newsletterJid: config.rrykarls.idCh 
-            },
-            externalAdReply: {  
-                showAdAttribution: true,
-                title: config.title,
-                body: config.body,
-                thumbnailUrl: config.rrykarls.image,
-                sourceUrl: config.rrykarls.idCh,
-                mediaType: 1,
-                renderLargerThumbnail: false
-            }
-        }
-    }, { quoted: ftroli });
-} catch (error) {}
-break;
+ 
+      await sendMenuMessage(InoueSend, captionText);
+
+try {
+        await sendAwdyoMessage(InoueSend, config.rrykarls.audio);
+    } catch (error) {
+        console.log("Error sending audio:", error);
+    }
+
+    break;
 }
-///|================( LIST MENU )================|
-///|================( OWNER MENU )================|
+///---///
 case "ownermenu": {
-let menuText = `
+    const captionText = `
 *[ OWNER MENU ]*
 > public
 > self
 > joingc
 > followch
 > pairspam
-> exec
-> eval
-> shell
-> synceval
-> asynceval
-> seval
-> aseval
+> $
+> >
+> =>
 `;
 
 if (m.key && m.key.id) {
- rrykarl.sendMessage(InoueSend, { 
-react: { text: getRandomEmoji(), key: m.key } 
-});
-}
-await replymesej(InoueSend, menuText, config.rrykarls.image, rrykarl, m);
+        rrykarl.sendMessage(InoueSend, { 
+            react: { text: getRandomEmoji(), key: m.key } 
+        });
+    }
+ 
+    await sendMenuMessage(InoueSend, captionText);
+
 break;
 }
-///|================( TOOLS MENU )================|
+///---///
 case "toolsmenu": {
-let menuText = `
+    const captionText = `
 *[ TOOLS MENU ]*
 > brat
 > bratvid
 `;
 
 if (m.key && m.key.id) {
- rrykarl.sendMessage(InoueSend, { 
-react: { text: getRandomEmoji(), key: m.key } 
-});
+        rrykarl.sendMessage(InoueSend, { 
+            react: { text: getRandomEmoji(), key: m.key } 
+        });
+    }
+ 
+    await sendMenuMessage(InoueSend, captionText);
+    break;
 }
-await replymesej(InoueSend, menuText, config.rrykarls.image, rrykarl, m);
-break;
-}
-///|================( MAIN MENU )================|
+///---///
 case "mainmenu": {
-let menuText = `
+    const captionText = `
 *[ MAIN MENU ]*
 > menu
 > help
@@ -376,235 +491,171 @@ let menuText = `
 `;
 
 if (m.key && m.key.id) {
- rrykarl.sendMessage(InoueSend, { 
-react: { text: getRandomEmoji(), key: m.key } 
-});
-}
-await replymesej(InoueSend, menuText, config.rrykarls.image, rrykarl, m);
-break;
-}
-//setiap list menu memiliki baris, kmu copy 1 baris lalu taruh di bawahnya, terus edit menu tambahan sesukamu//rrykarl
-//untuk fitur di bawah ini, di atas adalah tampilan menu
-///|================( CASE )================|
-//kode masih berantakan,belom sempet rapiin, gini aja dlu, cape
-///|================( OWNER )================|
-           case "owner": {
-    let ownerNumber = config.owner + "@s.whatsapp.net";
-
-    if (m.key && m.key.id) {
         rrykarl.sendMessage(InoueSend, { 
             react: { text: getRandomEmoji(), key: m.key } 
         });
     }
+ 
+    await sendMenuMessage(InoueSend, captionText);
+    break;
+}
+///|================( FITURNYA)================|
 
-    let contactMessage = {
+     case "owner": {
+    let ownerNumber = config.owner + "@s.whatsapp.net";
+
+    if (m.key && m.key.id) {
+        await rrykarl.sendMessage(InoueSend, { 
+            react: { text: getRandomEmoji(), key: m.key } 
+        });
+    }
+
+    const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${config.ownerName}\nTEL;type=CELL;type=VOICE;waid=${config.owner}:${config.owner}\nEND:VCARD`;
+
+    const contactMessage = {
         contacts: {
             displayName: config.ownerName,
             contacts: [
-                {
-                    vcard: `BEGIN:VCARD\nVERSION:3.0\nFN:${config.ownerName}\nTEL;waid=${config.owner}:${config.owner}\nEND:VCARD`
-                }
+                { vcard }
             ]
-        },
-        contextInfo: { 
-            forwardingScore: 999, 
-            isForwarded: true 
         }
     };
 
-    await rrykarl.sendMessage(InoueSend, contactMessage, { quoted: m });
+    await rrykarl.sendMessage(InoueSend, { contacts: { displayName: config.ownerName, contacts: [{ vcard }] } }, { quoted: m });
 
     try {
-    await sendAwdyo(rrykarl, InoueSend, config.rrykarls.audio, {
-        contextInfo: { 
-            forwardingScore: 999, 
-            isForwarded: true,
-            forwardedNewsletterMessageInfo: {
-                newsletterName: config.rrykarls.nameCh,
-                newsletterJid: config.rrykarls.idCh 
-            },
-            externalAdReply: {  
-                showAdAttribution: true,
-                title: config.title,
-                body: config.body,
-                thumbnailUrl: config.rrykarls.image,
-                sourceUrl: config.rrykarls.idCh,
-                mediaType: 1,
-                renderLargerThumbnail: false
-            }
-        }
-    }, { quoted: m });
-} catch (error) {}
-break;
-}
-///|================( DLL )================|         
-            
-            case "self": {
-                if (!isOwner(senderJid, rrykarl)) {
-    return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
+        await sendAwdyoMessage(InoueSend, config.rrykarls.audio);
+    } catch (error) {
+        console.log("Error sending audio:", error);
+    }
+
+    break;
 }
 
-                config.mode = "self";
-                await rrykarl.sendMessage(InoueSend, { text: "Bot sekarang dalam *Self Mode*!\nHanya owner yang bisa menggunakannya.", footer: "rrykarlsefni" }, { quoted: m });
-                break;
-            }
-
-            case "public": {
-                if (!isOwner(senderJid, rrykarl)) {
-    return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-}
-
-                config.mode = "public";
-                await rrykarl.sendMessage(InoueSend, { text: "Bot sekarang dalam *Public Mode*!\nSiapa saja bisa menggunakannya.", footer: "rrykarlsefni" }, { quoted: m });
-                break;
-            }
-            
-            case "joingc":
+      case "self":
+      case "public": {
         if (!isOwner(senderJid, rrykarl)) {
-            return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
         }
 
-        if (!text) {
-            return rrykarl.sendMessage(InoueSend, { text: " Masukkan link grup!\nContoh: .joingc https://chat.whatsapp.com/ABCDEFG12345" }, { quoted: m });
-        }
+        settings.mode = command;
+        saveSettings(settings);
 
-        const match = text.match(/chat\.whatsapp\.com\/([a-zA-Z0-9]+)/);
-        if (!match) {
-            return rrykarl.sendMessage(InoueSend, { text: "Link grup tidak valid!" }, { quoted: m });
-        }
-
-        try {
-            await rrykarl.groupAcceptInvite(match[1]);
-            rrykarl.sendMessage(InoueSend, { text: "Berhasil masuk grup!" }, { quoted: m });
-        } catch (error) {
-            rrykarl.sendMessage(InoueSend, { text: ` Gagal masuk grup: ${error.message}` }, { quoted: m });
-        }
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Mode bot diubah ke: *${command.toUpperCase()}*`
+        }, { quoted: ftroli });
         break;
-             
-            case "followch":
-            if (!isOwner(senderJid, rrykarl)) {
-        return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-    }
-    if (!text) {
-        return rrykarl.sendMessage(InoueSend, { text: " Masukkan ID channel!\nContoh: .followch 120363378175074413" }, { quoted: m });
-    }
-
-    const channelId = args.trim() + "@newsletter";
-
-    try {
-        await rrykarl.newsletterFollow(channelId);
-        rrykarl.sendMessage(InoueSend, { text: `✅ Berhasil mengikuti channel: ${channelId}` }, { quoted: m });
-    } catch (error) {
-        rrykarl.sendMessage(InoueSend, { text: `${config.messages.error} ${channelId}: ${error.message}` }, { quoted: m });
-    }
-    break;        
-    
-case "bratv":
-case "bratvid":
-case "bratvideo": {
-        if (!text) {
-            return rrykarl.sendMessage(InoueSend, { text: "Masukkan teks untuk Brat Video!" }, { quoted: m });
+      }
+      
+      case "autotyping": {
+        if (!isOwner(senderJid, rrykarl)) {
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
         }
-        
-        if (m.key && m.key.id) {
-        rrykarl.sendMessage(InoueSend, { react: { text: "⏱️", key: m.key } });
-}
 
-        try {
-            let bratUrl = `https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&isVideo=true&delay=500`;
-            let response = await axios.get(bratUrl, { responseType: "arraybuffer" });
-
-            if (response.data) {
-                let webpBuffer = await ffmpegConvertToWebp(response.data);
-                await rrykarl.sendMessage(InoueSend, { sticker: webpBuffer }, { quoted: m });
-            } else {
-                await rrykarl.sendMessage(InoueSend, { text: `${config.messages.error}` }, { quoted: m });
-            }
-        } catch (error) {
-            await rrykarl.sendMessage(InoueSend, { text: `${config.messages.error} ${error.message}` }, { quoted: m });
-        }
-    }
-    break;
-
-case "bratimg":
-case "brat": {
-    if (!text) {
-        return rrykarl.sendMessage(InoueSend, { 
-            text: " Masukkan teks untuk Brat Sticker!" 
-        }, { quoted: m });
-    }
-     
-     if (m.key && m.key.id) {
-     rrykarl.sendMessage(InoueSend, { react: { text: "⏱️", key: m.key } });
-}
-
-    try {
-        let bratUrl = `https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&isVideo=false&delay=500`;
-
-        let response = await axios.get(bratUrl, { 
-            responseType: "arraybuffer",
-            headers: {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"
-            }
-        });
-
-        if (response.data) {
-            await rrykarl.sendMessage(InoueSend, { 
-                sticker: response.data 
-            }, { quoted: m });
+        if (args === "on") {
+          settings.autotyping = true;
+        } else if (args === "off") {
+          settings.autotyping = false;
         } else {
-            await rrykarl.sendMessage(InoueSend, { 
-    text: `${config.messages.error} ${error.message}`
-}, { quoted: m });
+          return await rrykarl.sendMessage(InoueSend, {
+            text: `Penggunaan:\n.autotyping on\n.autotyping off`
+          }, { quoted: ftroli });
         }
 
-    } catch {
-        await rrykarl.sendMessage(InoueSend, { 
-    text: `${config.messages.error} ${error.message}`
-}, { quoted: m });
-    }
-}
-break; 
+        saveSettings(settings);
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Fitur *autotyping* diubah ke: *${settings.autotyping ? "ON" : "OFF"}*`
+        }, { quoted: ftroli });
+        break;
+      }
 
-case "pairspam": {
-    if (!isOwner(senderJid, rrykarl)) {
-    return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-}
+      case "autoreadchat": {
+        if (!isOwner(senderJid, rrykarl)) {
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
+        }
 
-    if (!text) {
-        return rrykarl.sendMessage(InoueSend, { text: "Masukkan nomor target dan jumlah spam!\nContoh: .spampair 628xxxxxx 5" }, { quoted: m });
-    }
+        if (args === "on") {
+          settings.autoreadchat = true;
+        } else if (args === "off") {
+          settings.autoreadchat = false;
+        } else {
+          return await rrykarl.sendMessage(InoueSend, {
+            text: `Penggunaan:\n.autoreadchat on\n.autoreadchat off`
+          }, { quoted: ftroli });
+        }
 
-    const input = args.split(" ");
-    const phoneNumber = input[0].replace(/[^0-9]/g, "");
-    const count = parseInt(input[1]);
+        saveSettings(settings);
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Fitur *autoreadchat* diubah ke: *${settings.autoreadchat ? "ON" : "OFF"}*`
+        }, { quoted: ftroli });
+        break;
+      }
 
-    if (!phoneNumber || phoneNumber.length < 10) {
-        return rrykarl.sendMessage(InoueSend, { text: "Nomor tidak valid!" }, { quoted: m });
-    }
-    if (isNaN(count) || count <= 0) {
-        return rrykarl.sendMessage(InoueSend, { text: "Jumlah spam harus angka!" }, { quoted: m });
-    }
+      case "readsw": {
+        if (!isOwner(senderJid, rrykarl)) {
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
+        }
 
-    await rrykarl.sendMessage(InoueSend, { text: `Memulai spam pairing ke ${phoneNumber} sebanyak ${count} kali...` }, { quoted: m });
+        if (args === "on") {
+          settings.autoreadsw = true;
+        } else if (args === "off") {
+          settings.autoreadsw = false;
+        } else {
+          return await rrykarl.sendMessage(InoueSend, {
+            text: `Penggunaan:\n.readsw on\n.readsw off`
+          }, { quoted: ftroli });
+        }
 
-    try {
-        const response = await requestPairingCode(phoneNumber, count);
-        const pairingCode = response[0];
-        const totalSent = response.length;
+        saveSettings(settings);
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Fitur *autoreadsw* diubah ke: *${settings.autoreadsw ? "ON" : "OFF"}*`
+        }, { quoted: ftroli });
+        break;
+      }
 
-        await rrykarl.sendMessage(InoueSend, { 
-            text: `Berhasil meminta kode pairing\n\nKode Pairing: ${pairingCode}\nTelah dikirim sebanyak ${totalSent} kali.` 
-        }, { quoted: m });
+      case "reactsw": {
+        if (!isOwner(senderJid, rrykarl)) {
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
+        }
 
-    } catch (error) {
-        await rrykarl.sendMessage(InoueSend, { text: `Gagal meminta pairing: ${error.message}` }, { quoted: m });
-    }
+        if (args === "on") {
+          settings.autoreactsw = true;
+        } else if (args === "off") {
+          settings.autoreactsw = false;
+        } else {
+          return await rrykarl.sendMessage(InoueSend, {
+            text: `Penggunaan:\n.reactsw on\n.reactsw off`
+          }, { quoted: ftroli });
+        }
 
-    break;
-}
+        saveSettings(settings);
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Fitur *autoreactsw* diubah ke: *${settings.autoreactsw ? "ON" : "OFF"}*`
+        }, { quoted: ftroli });
+        break;
+      }
 
+      case "setreactsw": {
+        if (!isOwner(senderJid, rrykarl)) {
+          return await rrykarl.sendMessage(InoueSend, { text: config.ownerOnly }, { quoted: ftroli });
+        }
+
+        const emojis = args.split(",").map(e => e.trim()).filter(e => e);
+        if (emojis.length === 0) {
+          return await rrykarl.sendMessage(InoueSend, {
+            text: "Masukkan emoji valid. Contoh:\n.setreactsw 😎,🔥,👀"
+          }, { quoted: ftroli });
+        }
+
+        settings.emojiList = emojis;
+        saveSettings(settings);
+
+        await rrykarl.sendMessage(InoueSend, {
+          text: `Daftar emoji autoreact diperbarui:\n${emojis.join(" ")}`
+        }, { quoted: ftroli });
+        break;
+      }
+      
 case "ping":
 case "speed":
 case "stats":
@@ -631,7 +682,7 @@ case "infobot": {
     } catch (error) {}
     const startTime = performance.now();
     const responseTime = (performance.now() - startTime).toFixed(4) + " detik";
-    const infoMessage = `
+    const captionText = `
 [ INFO SERVER ]
 > \`Waktu\` : *${stats.time} WIB*
 > \`Platform\` : *${platform}*
@@ -657,70 +708,43 @@ case "infobot": {
         });
     }
 
-    await replymesej(InoueSend, infoMessage, config.rrykarls.image, rrykarl, m);
+    await sendMenuMessage(InoueSend, captionText);
     break;
 }
-///|================( EVAL )================|
-case "shell":
-case "exec": {
-if (!isOwner(senderJid, rrykarl)) {
-return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-}
-if (!text) {
-return rrykarl.sendMessage(InoueSend, { text: "Masukkan perintah shell yang ingin dijalankan!" }, { quoted: ftroli });
-}
-try {
-exec(text, (error, stdout, stderr) => {
-if (error) return rrykarl.sendMessage(InoueSend, { text: `Error: ${error.message}` }, { quoted: m });
-if (stderr) return rrykarl.sendMessage(InoueSend, { text: `Stderr: ${stderr}` }, { quoted: m });
-rrykarl.sendMessage(InoueSend, { text: ` Output:\n${stdout}` }, { quoted: m });
-});
-} catch (err) {
-rrykarl.sendMessage(InoueSend, { text: ` Error: ${err.message}` }, { quoted: m });
-}
-break;
-}
-case "eval": 
-case "synceval":
-case "seval": {
-if (!isOwner(senderJid, rrykarl)) {
-return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-}
-if (!text) {
-return rrykarl.sendMessage(InoueSend, { text: "Silakan masukkan kode JavaScript yang ingin dieksekusi! *Hanya mendukung eksekusi sinkron.*\n> Hati-hati, kesalahan kode dapat membuat bot crash!" }, { quoted: ftroli });
-}
-try {
-let result = eval(text); 
-if (typeof result !== "string") result = require("util").inspect(result);
-rrykarl.sendMessage(InoueSend, { text: `Output:\n${result}` }, { quoted: m });
-} catch (error) {
-rrykarl.sendMessage(InoueSend, { text: `Error: ${error.message}` }, { quoted: m });
-}
-break;
-}
-case "asynceval":
-case "aseval": {
-if (!isOwner(senderJid, rrykarl)) {
-return await rrykarl.sendMessage(InoueSend, { text: config.messages.ownerOnly }, { quoted: m });
-}
-if (!text) {
-return rrykarl.sendMessage(InoueSend, { text: "Silakan masukkan kode JavaScript yang ingin dieksekusi! *Mendukung kode asinkron dengan await.*\n> Hati-hati, kesalahan kode dapat membuat bot crash!" }, { quoted: ftroli });
-}
-try {
-let result = await eval(`(async () => { ${text} })()`); 
-if (typeof result !== "string") result = require("util").inspect(result);
-rrykarl.sendMessage(InoueSend, { text: `Output:\n${result}` }, { quoted: m });
-} catch (error) {
-rrykarl.sendMessage(InoueSend, { text: `Error: ${error.message}` }, { quoted: m });
-}
-break;
-}
-///|================( END )================|
+///|================( WARNING )================|
+default:
+  if (usedEvalPrefix && isOwner(senderJid, rrykarl)) {
+    try {
+      let evaled;
+      const code = textMessage.slice(usedEvalPrefix.length).trim();
 
-    default:
-        logUnknownCommand(command, senderJid);
-        break;
-}
+      if (usedEvalPrefix === "=>") {
+        evaled = await eval(`(async () => { ${code} })()`);
+      } else if (usedEvalPrefix === ">") {
+        evaled = await eval(code);
+      } else if (usedEvalPrefix === "$") {
+        exec(code, (err, stdout, stderr) => {
+          if (err) return rrykarl.sendMessage(InoueSend, { text: `Error:\n${err.message}` }, { quoted: ftroli });
+          if (stderr) return rrykarl.sendMessage(InoueSend, { text: `Stderr:\n${stderr}` }, { quoted: m });
+          return rrykarl.sendMessage(InoueSend, { text: stdout }, { quoted: m });
+        });
+        return;
+      }
+
+      if (typeof evaled !== "string") {
+        evaled = util.inspect(evaled, { depth: 2, compact: false });
+      }
+
+      rrykarl.sendMessage(InoueSend, { text: evaled }, { quoted: m });
+    } catch (e) {
+      rrykarl.sendMessage(InoueSend, { text: `error:\n${e.message}` }, { quoted: ftroli });
+    }
+    return;
+  }
+
+  logUnknownCommand(command, senderJid);
+  break;
+  }
     } catch (err) {
         console.error("\x1b[31m❌ Error dalam penanganan pesan:\x1b[0m", err);
     }
